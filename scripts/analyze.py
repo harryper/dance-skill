@@ -177,46 +177,51 @@ def coverage_stats(anchors: list) -> dict:
     return {"chest": round(chest, 3), "foot": round(foot, 3)}
 
 
-def recommend_window(anchors: list, fps: float, bpm: dict, target_dur: float = 18.0) -> dict:
+def recommend_window(anchors: list, fps: float, bpm: dict, target_dur: float = None, source_duration: float = None) -> dict:
     """
-    Score each candidate window by:
-      - chest-x close to 0.5 (centered)
-      - chest-y not too close to edge
-      - foot present (foot in frame)
-    Returns top-1 with start_time and score.
-    `fps` here is the *anchor sampling rate*, not source fps (anchors are
-    sampled at min(source_fps, SAMPLE_FPS)).
+    Default: recommend the FULL source from 0 — don't truncate, BGM must stay
+    intact. `target_dur` is reserved for future use; pass None for default.
+    Score is computed on the full source as a quality indicator.
     """
-    if not anchors or not bpm.get("bpm"):
-        return {"start_time": 0.0, "duration": target_dur, "score": 0.0, "note": "no anchors or bpm, default to 0s"}
+    if not anchors:
+        return {"start_time": 0.0, "duration": 0.0, "score": 0.0, "note": "no anchors"}
+    if not bpm.get("bpm"):
+        bpm_note = "no bpm"
+    else:
+        bpm_note = None
 
-    window_frames = int(target_dur * fps)
     n = len(anchors)
-    if n < window_frames:
-        return {"start_time": 0.0, "duration": round(n / fps, 3), "score": 0.0, "note": "video shorter than target"}
+    # Prefer the actual source duration over anchor-count-derived, since the
+    # latter has rounding loss at non-integer ratios.
+    if source_duration is not None:
+        full_dur = round(source_duration, 3)
+    else:
+        full_dur = round(n / fps, 3)
 
-    best = {"start_idx": 0, "score": -1e9}
-    for i in range(0, n - window_frames, max(1, window_frames // 6)):
-        win = anchors[i: i + window_frames]
-        chest_xs = [w["chest"][0] for w in win if w["chest"]]
-        chest_ys = [w["chest"][1] for w in win if w["chest"]]
-        foot_count = sum(1 for w in win if w["foot"] is not None)
-        if not chest_xs:
-            continue
-        centering = -abs(np.mean(chest_xs) - 0.5) * 2
-        y_penalty = -max(0, abs(np.mean(chest_ys) - 0.4) - 0.1) * 2
-        foot_bonus = foot_count / len(win)
-        score = centering + y_penalty + foot_bonus
-        if score > best["score"]:
-            best = {"start_idx": i, "score": float(round(score, 4))}
+    # Quality score on full source — informational, not used to crop.
+    chest_xs = [w["chest"][0] for w in anchors if w["chest"]]
+    chest_ys = [w["chest"][1] for w in anchors if w["chest"]]
+    foot_count = sum(1 for w in anchors if w["foot"] is not None)
+    if chest_xs:
+        score = (
+            -abs(np.mean(chest_xs) - 0.5) * 2
+            - max(0, abs(np.mean(chest_ys) - 0.4) - 0.1) * 2
+            + foot_count / n
+        )
+        score = float(round(score, 4))
+    else:
+        score = 0.0
 
-    start_t = anchors[best["start_idx"]]["t"]
-    return {
-        "start_time": round(start_t, 2),
-        "duration": target_dur,
-        "score": best["score"],
-        "bpm_used": bpm["bpm"],
+    out = {
+        "start_time": 0.0,
+        "duration": full_dur,
+        "score": score,
     }
+    if bpm_note:
+        out["note"] = bpm_note
+    else:
+        out["bpm_used"] = bpm["bpm"]
+    return out
 
 
 def main():
@@ -246,7 +251,7 @@ def main():
     cov = coverage_stats(anchors)
     # recommend uses *anchor sampling* fps, not source fps
     anchor_fps = (SAMPLE_FPS if SAMPLE_FPS > 0 else int(round(meta["fps"])))
-    rec = recommend_window(anchors, anchor_fps, bpm_info)
+    rec = recommend_window(anchors, anchor_fps, bpm_info, source_duration=meta["duration"])
 
     report = {
         "meta": meta,

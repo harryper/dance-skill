@@ -21,9 +21,10 @@ python scripts/analyze.py input.mp4 /tmp/work
 # 2. 看报告(看 report.json 里的 recommendation.start_time)
 cat /tmp/work/report.json | python -m json.tool
 
-# 3. 渲染
+# 3. 渲染(默认用源长,不切 BGM)
 python scripts/render.py input.mp4 /tmp/work out.mp4 \
-    --start 0 --duration 18 --zoom 1.4
+    --start 0 --zoom 1.4
+# 要裁短就显式传 --duration
 ```
 
 ## 安装
