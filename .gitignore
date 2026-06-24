@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+
+# Local work dirs
+/tmp_work/
+/tmp/dance_work/
+/tmp/demo_work/
+work/
+
+# Output artifacts
+*.mp4
+!models/*.task
+!references/*.md
